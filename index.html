@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no"/>
+    <title>Simple Map</title>
+    <link rel="stylesheet" href="https://js.arcgis.com/3.12/esri/css/esri.css">
+    
+    <link rel="stylesheet" href="https://js.arcgis.com/3.12/dijit/themes/claro/claro.css">
+    <style>
+      html, body, #map, #newImageHolder, #newImageHolderSlope {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      #newImageHolder, #newImageHolderSlope{
+        z-index:99;
+        position:absolute;
+        left:0;
+        top:0;
+        width:100%;
+        height:100%;
+      }
+      .canvasTile{
+        position: absolute;
+        border: none;
+        margin: 0px;
+        padding: 0px;
+      }
+      body {
+        background-color: #FFF;
+        overflow: hidden;
+        font-family: "Trebuchet MS";
+      }
+    </style>
+    <script src="https://js.arcgis.com/3.12/init.js"></script>
+    <script>
+
+    window.webWorker;
+    window.contexts = [];
+    window.contextsSlope = [];
+    window.useWebWorker = false;
+    window.map = {};
+    window.layerType = "elev";
+
+    function startWorker() {
+        if(typeof(Worker) !== "undefined") {
+            if(typeof(w) == "undefined") {
+                webWorker = new Worker("webworker.js");
+            }
+            webWorker.onmessage = function(event) {
+              console.log(event.data);
+              var imageDataArray = event.data.imageDataArray;
+
+              
+
+            // domStyle.set("map", "newImageHolder", "none");
+            if (window.layerType == "elev") {
+
+              for (var i = 0; i < window.contexts.length; i++) {
+                window.contexts[i].putImageData(imageDataArray[i],0,0);
+              }
+
+            document.getElementById("newImageHolder").style.display = "block";
+            
+          } 
+
+          if (window.layerType == "slope") {
+
+            for (var i = 0; i < window.contextsSlope.length; i++) {
+                window.contextsSlope[i].putImageData(imageDataArray[i],0,0);
+              }
+           document.getElementById("newImageHolderSlope").style.display = "block";
+
+          }
+             
+            };
+        } else {
+            //document.getElementById("result").innerHTML = "Sorry! No Web Worker support.";
+        }
+    }
+
+    function stopWorker() { 
+        webWorker.terminate();
+        webWorker = undefined;
+    }
+
+     var startWebWorker;
+
+      function drawImageGray(imageObj, c) {
+        var canvas = c;//document.getElementById('myCanvas');
+        var context = canvas.getContext('2d');
+        var x = 0;
+        var y = 0;
+
+        context.drawImage(imageObj, x, y);
+
+        var imageData = context.getImageData(x, y, imageObj.width, imageObj.height);
+        var data = imageData.data;
+
+        for(var i = 0; i < data.length; i += 4) {
+          var brightness = 0.34 * data[i] + 0.5 * data[i + 1] + 0.16 * data[i + 2];
+          // red
+          data[i] = brightness;
+          // green
+          data[i + 1] = brightness;
+          // blue
+          data[i + 2] = brightness;
+        }
+
+        // overwrite original image
+        context.putImageData(imageData, x, y);
+      }
+
+      function hideAColor(imageObj, c, useWebWorker, layerType){
+
+        //debugger;
+        var canvas = c;//document.getElementById('myCanvas');
+        var context = canvas.getContext('2d');
+
+        if (layerType=="elev"){
+        window.contexts.push(context);
+        }
+        if (layerType=="slope"){
+
+        window.contextsSlope.push(context);
+        }      
+          
+        var x = 0;
+        var y = 0;
+
+        context.drawImage(imageObj, x, y);
+
+        var imageData = context.getImageData(x, y, imageObj.width, imageObj.height);
+
+        if (useWebWorker){
+                return imageData;
+
+        } else {
+
+          var data = imageData.data;
+
+                for (var i = 0, n = data.length; i < n ; i += 4) {
+                      var r = data[i],
+                          g = data[i+1],
+                          b = data[i+2];
+                     // console.log(g);
+                      if(g > window.sliderValue){ 
+                          // If the green component value is higher than 150
+                          // make the datael transparent because i+3 is the alpha component
+                          // values 0-255 work, 255 is solid
+                          data[i + 3] = 0;
+                      }
+                  };
+
+                 context.putImageData(imageData, x, y);
+          
+        }
+       
+        
+
+      }
+
+      function drawImageInvert(imageObj, c) {
+        var canvas = c;//document.getElementById('myCanvas');
+        var context = canvas.getContext('2d');
+        var x = 0;
+        var y = 0;
+
+        context.drawImage(imageObj, x, y);
+
+        var imageData = context.getImageData(x, y, imageObj.width, imageObj.height);
+        var data = imageData.data;
+
+        for(var i = 0; i < data.length; i += 4) {
+          // red
+          data[i] = 255 - data[i];
+          // green
+          data[i + 1] = 255 - data[i + 1];
+          // blue
+          data[i + 2] = 255 - data[i + 2];
+        }
+
+        // overwrite original image
+        context.putImageData(imageData, x, y);
+      }
+      
+
+      
+      require(["esri/map", "dojo/_base/array", "esri/workers/WorkerClient", "esri/config","dijit/form/HorizontalSlider",  "dojo/dom-construct", "dojo/dom", "dojo/dom-style", "esri/layers/ArcGISTiledMapServiceLayer","esri/layers/ArcGISDynamicMapServiceLayer", "esri/layers/ImageParameters", 
+        "dojo/domReady!"], 
+        function(Map, arrayUtil,WorkerClient, esriConfig,HorizontalSlider,  domConstruct, dom, domStyle, ArcGISTiledMapServiceLayer,
+          ArcGISDynamicMapServiceLayer, ImageParameters) {
+        map = new Map("map", {
+          basemap: "gray",
+          center: [117.45, 0.75], // longitude, latitude
+          zoom: 7
+        });
+
+        var World_Physical_Map = "http://services.arcgisonline.com/arcgis/rest/services/World_Physical_Map/MapServer";
+        var malaysiaElevURL = "http://gis-potico.wri.org/arcgis/rest/services/suitabilitymapper/moremaps_EN/MapServer";
+        //var World_Physical_Map_Layer = new ArcGISTiledMapServiceLayer(World_Physical_Map);
+        //var imageParameters = new ImageParameters()
+        var malaysiaElevLayer = new ArcGISDynamicMapServiceLayer(malaysiaElevURL,{
+          id:"malaysia"
+        });
+        var malaysiaSlopeLayer = new ArcGISDynamicMapServiceLayer(malaysiaElevURL,{
+          id:"malaysia_slope"
+        });
+        malaysiaElevLayer.setVisibleLayers([3]);
+        malaysiaSlopeLayer.setVisibleLayers([4]);
+        map.addLayers([malaysiaElevLayer,malaysiaSlopeLayer]);
+
+        esriConfig.defaults.io.proxyUrl = "/proxy/proxy.ashx"
+        esriConfig.defaults.io.alwaysUseProxy = true;
+        
+        var domStyle = domStyle;
+
+        //window.myWorker = new WorkerClient(["https://shj.blueraster.com/apps-wiseguy/webworkers/webworker.js"], true);
+        //debugger;
+        var slider = new HorizontalSlider({
+                name: "slider",
+                value: 0,
+                minimum: 0,
+                maximum: 256,
+                intermediateChanges: true,
+                style: "width:400px;",
+                onChange: function(value){
+                  window.sliderValue = 256 - value;
+                 startWebWorker('hidecolor', true, "elev");
+
+              }
+        }, "slider").startup();
+
+         var slider = new HorizontalSlider({
+                name: "slider",
+                value: 0,
+                minimum: 0,
+                maximum: 256,
+                intermediateChanges: true,
+                style: "width:400px;",
+                onChange: function(value){
+                  window.sliderValue = 256 - value;
+                  startWebWorker('hidecolor', false, "elev");
+
+              }
+        }, "sliderB").startup();
+
+
+         var slider = new HorizontalSlider({
+                name: "slider",
+                value: 0,
+                minimum: 0,
+                maximum: 256,
+                intermediateChanges: true,
+                style: "width:400px;",
+                onChange: function(value){
+                  window.sliderValue = 256 - value;
+                  startWebWorker('hidecolor', true, "slope");
+
+              }
+        }, "sliderSlope").startup();
+
+
+        
+        function convertImageToCanvas(image, domStyle, layerType) {  
+            var width = image.width;
+            var height = image.height;
+            var style = image.style;
+            
+            if (layerType=="elev"){
+            var newImageHolder = dom.byId("newImageHolder");
+              
+            }
+
+            if (layerType=="slope"){
+            var newImageHolder = dom.byId("newImageHolderSlope");
+              
+            }
+
+           // debugger;
+            var style = "width:" + width + "px;height:"+ height+"px;-webkit-transform:" + image.style.webkitTransform;
+            //debugger;
+            var canvasContainer = domConstruct.create("div", {style:style, "class":"canvasTile"}, newImageHolder);
+           //debugger;
+            var canvas = domConstruct.create("canvas", null, canvasContainer);
+            canvas.width = width;
+            canvas.height = height;
+            canvas.style = style;
+            canvas.getContext("2d").drawImage(image, 0, 0);
+
+            return canvas;
+          }
+
+        window.startWebWorker = function(type, useWebWorker, layerType){
+          
+
+          window.layerType = layerType;
+
+          console.log('start web worker');
+          var canvasArray = [];
+
+          if (layerType == "elev") {
+
+            dom.byId("newImageHolder").innerHTML = "";
+            var imagesArray = dojo.query("#map_malaysia img");
+            window.contexts = [];
+            
+          } 
+
+          if (layerType == "slope") {
+           dom.byId("newImageHolderSlope").innerHTML = "";
+           var imagesArray = dojo.query("#map_malaysia_slope img");
+           window.contextsSlope = [];
+
+          }
+
+          var imageDataArray = [];
+
+          
+          
+          
+
+          arrayUtil.forEach(imagesArray, function(image){
+
+            var canvas = convertImageToCanvas(image, domStyle, layerType);
+            canvasArray.push(canvas);
+
+            switch (type){
+              case "gray":
+                 drawImageGray(image, canvas);
+
+              break;
+              case "invert":
+                 drawImageInvert(image, canvas);
+              break;
+              case "hidecolor":   
+                 
+                if (useWebWorker){
+
+                 imageDataArray.push(hideAColor(image, canvas, useWebWorker, layerType));
+                  
+                } else {
+                  hideAColor(image,canvas, useWebWorker, hideAColor);
+                }  
+              break;
+            }
+            
+          });
+           
+           if (useWebWorker){
+
+             startWorker();
+             
+             webWorker.postMessage({imageDataArray:imageDataArray, sliderValue: window.sliderValue, layerType: layerType});
+
+            // document.getElementById("newImageHolder").innerHTML = "";
+
+
+          if (layerType == "elev") {
+            
+           domStyle.set("newImageHolder", "display", "none");
+            window.map.getLayer("malaysia").hide();
+            
+          } 
+
+          if (layerType == "slope") {
+           domStyle.set("newImageHolderSlope", "display", "none");
+            window.map.getLayer("malaysia_slope").hide();
+
+          }
+            
+            // domStyle.set("map", "display", "none");
+
+           };
+         
+    
+
+        }
+
+        window.revertMap = function(){
+          window.map.getLayer("malaysia").show();
+         // domStyle.set("map", "display", "block");
+
+        }
+      });
+    </script>
+  </head>
+
+  <body class="claro">
+    <button onclick="startWebWorker('gray')" style="z-index:100;position:absolute;top:50px;right:100px">GRAY</button>
+
+    <button onclick="startWebWorker('invert')" style="z-index:100;position:absolute;top:100px;right:100px">INVERT</button>
+
+    <button onclick="revertMap()" style="z-index:100;position:absolute;top:150px;right:150px">SHOW MAP</button>
+
+    <button onclick="startWebWorker('hidecolor')" style="z-index:100;position:absolute;top:200px;right:100px">HIDE COLOR</button>
+
+    <div class="sliderContainer" style="z-index:100;position:absolute;top:10px;left:100px">
+     <span>Web Worker - Elevation</span> <div id="slider"></div>
+     <span>Web Worker - Slope</span> <div id="sliderSlope"></div>
+
+    </div>
+
+     <div class="sliderContainer" style="z-index:100;position:absolute;top:150px;left:100px">
+     <span>Not using Web Worker - Elevation</span>  <div id="sliderB"></div>
+
+    </div>
+
+      
+    <div id="newImageHolder" class="map"></div>
+    <div id="newImageHolderSlope" class="map"></div>
+
+    <div id="map">
+    
+    
+
+
+    </div>
+
+  </body>
+</html>
